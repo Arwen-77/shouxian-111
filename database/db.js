@@ -1,205 +1,199 @@
-import initSqlJs from 'sql.js';
-import fs from 'fs';
-import path from 'path';
+const fs = require('fs');
+const path = require('path');
 
-let db = null;
+const dbPath = path.join(process.cwd(), 'database', 'app.db');
+const exists = fs.existsSync(dbPath);
 
-function convertPlaceholders(sql) {
-  let index = 1;
-  return sql.replace(/\?/g, () => `$${index++}`);
-}
+const initSql = `
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username VARCHAR(50) UNIQUE NOT NULL,
+  email VARCHAR(100),
+  password VARCHAR(255) NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 
-async function getDb() {
+CREATE TABLE IF NOT EXISTS sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  token VARCHAR(255) UNIQUE NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS questions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  question TEXT NOT NULL,
+  options TEXT NOT NULL,
+  answer INTEGER NOT NULL,
+  explanation TEXT,
+  category TEXT DEFAULT '综合',
+  difficulty INTEGER DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS answer_records (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  question_id INTEGER,
+  user_answer INTEGER NOT NULL,
+  is_correct INTEGER NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (question_id) REFERENCES questions(id)
+);
+
+CREATE TABLE IF NOT EXISTS training_scenarios (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  scenario TEXT NOT NULL,
+  scenario_type TEXT NOT NULL,
+  difficulty INTEGER DEFAULT 1,
+  tips TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS scenario_options (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scenario_id INTEGER,
+  option_text TEXT NOT NULL,
+  is_correct INTEGER NOT NULL,
+  feedback TEXT,
+  score INTEGER DEFAULT 0,
+  FOREIGN KEY (scenario_id) REFERENCES training_scenarios(id)
+);
+
+CREATE TABLE IF NOT EXISTS training_records (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  scenario_id INTEGER,
+  selected_option INTEGER NOT NULL,
+  score INTEGER NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (scenario_id) REFERENCES training_scenarios(id)
+);
+`;
+
+let db;
+
+async function initDB() {
   if (db) return db;
   
-  const SQL = await initSqlJs({
-    locateFile: file => path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', file)
-  });
+  const initSqlJs = await import('sql.js');
+  const SQL = initSqlJs.default;
   
-  const dbPath = path.join(process.cwd(), 'database', 'shouxian.db');
+  const config = {
+    locateFile: file => `/${file}`
+  };
   
-  if (fs.existsSync(dbPath)) {
-    const data = fs.readFileSync(dbPath);
-    db = new SQL.Database(new Uint8Array(data));
-  } else {
-    db = new SQL.Database();
-    initTables();
-    saveDb();
+  db = await new SQL.Database();
+  
+  db.run(initSql);
+  
+  if (!exists) {
+    const sampleQuestions = [
+      { question: '保险合同的订立必须遵循的原则不包括', options: JSON.stringify(['最大诚信原则', '自愿原则', '公平原则', '等价交换原则']), answer: 3, explanation: '保险合同订立原则包括最大诚信、自愿、公平、互利等，但不等价交换', category: '保险基础知识', difficulty: 1 },
+      { question: '以下哪种风险属于纯粹风险？', options: JSON.stringify(['投资股票', '购买彩票', '火灾损失', '创业']), answer: 2, explanation: '纯粹风险只有损失机会，没有获利可能，火灾属于纯粹风险', category: '保险基础知识', difficulty: 1 },
+      { question: '保险的基本职能是', options: JSON.stringify(['融资职能', '经济补偿职能', '社会管理职能', '风险管理职能']), answer: 1, explanation: '保险的基本职能是经济补偿，其他是派生职能', category: '保险基础知识', difficulty: 1 },
+      { question: '投保人对下列哪项财产不具有保险利益？', options: JSON.stringify(['自己的房屋', '租赁的房屋', '朋友的汽车', '自己的身体']), answer: 2, explanation: '投保人对朋友的汽车没有法律上承认的利益', category: '保险基础知识', difficulty: 2 },
+      { question: '人身保险合同的主体不包括', options: JSON.stringify(['投保人', '保险人', '被保险人', '受益人']), answer: 3, explanation: '受益人是保险金受领人，不是合同主体', category: '保险基础知识', difficulty: 2 },
+      { question: '以下关于保险合同的说法正确的是', options: JSON.stringify(['保险合同是单务合同', '保险合同是射幸合同', '保险合同是无偿合同', '保险合同是实践性合同']), answer: 1, explanation: '保险合同是射幸合同，即合同履行结果取决于偶然事件', category: '保险基础知识', difficulty: 2 },
+      { question: '保险金额是指', options: JSON.stringify(['投保人缴纳的保费', '保险人承担赔偿的最高限额', '保险标的的实际价值', '保险费的计算依据']), answer: 1, explanation: '保险金额是保险人承担赔偿或给付责任的最高限额', category: '保险基础知识', difficulty: 1 },
+      { question: '以下哪种情况属于保险欺诈？', options: JSON.stringify(['隐瞒病史投保', '发生意外后及时报案', '如实告知健康状况', '按期缴纳保费']), answer: 0, explanation: '隐瞒病史属于故意隐瞒重要事实，构成保险欺诈', category: '保险基础知识', difficulty: 1 },
+      { question: '保险理赔的基本原则是', options: JSON.stringify(['重合同、守信用', '主动、迅速、准确、合理', '实事求是', '以上都是']), answer: 3, explanation: '保险理赔应遵循重合同守信用、主动迅速准确合理、实事求是等原则', category: '保险基础知识', difficulty: 1 },
+      { question: '下列关于代位求偿权的说法错误的是', options: JSON.stringify(['代位求偿权仅适用于财产保险', '保险人行使代位求偿权不影响被保险人的其他权利', '被保险人放弃对第三者的赔偿请求权的，保险人仍需承担赔偿责任', '代位求偿权是一种法定权利']), answer: 2, explanation: '被保险人放弃对第三者赔偿请求权的，保险人可以拒绝赔偿', category: '保险基础知识', difficulty: 3 },
+      { question: '客户说"保险太贵了"，正确的回应是', options: JSON.stringify(['不贵啊，一天才几块钱', '您说得对，我们可以根据预算调整方案', '不买保险风险更大', '这已经是最便宜的了']), answer: 1, explanation: '先认同客户感受，再提供解决方案', category: '销售技巧', difficulty: 2 },
+      { question: '客户说"我有社保了"，正确的回应是', options: JSON.stringify(['社保不够用', '社保是基础，商保是补充', '社保报销很多', '有社保就够了']), answer: 1, explanation: '客观说明社保与商保的互补关系', category: '销售技巧', difficulty: 2 },
+      { question: '客户说"我再考虑考虑"，正确的做法是', options: JSON.stringify(['尊重客户，过几天再联系', '追问具体顾虑', '直接放弃', '施加压力']), answer: 1, explanation: '了解客户顾虑才能针对性解决', category: '销售技巧', difficulty: 1 },
+      { question: '以下哪种沟通方式更有效？', options: JSON.stringify(['单向灌输', '双向沟通', '只顾自己说', '不倾听客户需求']), answer: 1, explanation: '双向沟通能更好了解客户需求', category: '销售技巧', difficulty: 1 },
+      { question: '保险销售的核心是', options: JSON.stringify(['推销产品', '满足客户需求', '完成业绩', '讲解条款']), answer: 1, explanation: '以客户需求为导向才是正确的销售理念', category: '销售技巧', difficulty: 1 }
+    ];
+
+    for (const q of sampleQuestions) {
+      db.run(
+        'INSERT INTO questions (question, options, answer, explanation, category, difficulty) VALUES (?, ?, ?, ?, ?, ?)',
+        [q.question, q.options, q.answer, q.explanation, q.category, q.difficulty]
+      );
+    }
+
+    const scenarios = [
+      {
+        title: '客户说"保险太贵了"',
+        scenario: '客户是一位35岁的白领，月收入15000元，有房贷和孩子。当你推荐重疾险时，他说："保险太贵了，我买不起。"',
+        scenario_type: '客户异议处理',
+        difficulty: 1,
+        tips: '要理解客户的真实顾虑，用专业的方式展示保险的价值和必要性。'
+      },
+      {
+        title: '客户说"我再考虑考虑"',
+        scenario: '你详细介绍了产品后，客户说："我再考虑考虑，过几天给你答复。"',
+        scenario_type: '成交技巧',
+        difficulty: 2,
+        tips: '要了解客户犹豫的真实原因，并提供有价值的信息帮助决策。'
+      },
+      {
+        title: '重疾险产品介绍',
+        scenario: '客户是一位40岁的企业主，想了解重疾险。请向他介绍重疾险的核心价值。',
+        scenario_type: '产品介绍',
+        difficulty: 2,
+        tips: '要用通俗易懂的语言，结合客户实际情况，突出产品的核心价值。'
+      },
+      {
+        title: '客户需求分析',
+        scenario: '客户是一位28岁的单身女性，刚工作几年，想买保险但不知道买什么。请帮她分析需求。',
+        scenario_type: '需求分析',
+        difficulty: 1,
+        tips: '要通过提问了解客户的具体情况，包括收入、负债、家庭责任等。'
+      },
+      {
+        title: '客户说"我有社保了"',
+        scenario: '客户说："我有社保了，不需要商业保险。"',
+        scenario_type: '客户异议处理',
+        difficulty: 2,
+        tips: '要客观分析社保和商业保险的区别，用事实说话，不要贬低社保。'
+      }
+    ];
+
+    for (const scenario of scenarios) {
+      const stmt = db.prepare('INSERT INTO training_scenarios (title, scenario, scenario_type, difficulty, tips) VALUES (?, ?, ?, ?, ?)');
+      stmt.run([scenario.title, scenario.scenario, scenario.scenario_type, scenario.difficulty, scenario.tips]);
+      stmt.free();
+    }
+
+    const options = [
+      { scenario_id: 1, option_text: '您说得对，确实不便宜。但我们可以根据您的预算调整方案，先保障最关键的风险。', is_correct: 1, feedback: '很好！这个回答既认同了客户的感受，又提出了建设性的解决方案。', score: 90 },
+      { scenario_id: 1, option_text: '不贵啊，一天也就几十块钱，少喝两杯咖啡就有了。', is_correct: 0, feedback: '这种说法可能会让客户觉得你不理解他的经济压力，容易引起反感。', score: 30 },
+      { scenario_id: 1, option_text: '那您觉得多少钱合适呢？我们可以调整保额。', is_correct: 1, feedback: '不错！通过询问客户的预算，可以更好地为其定制方案。', score: 75 },
+      { scenario_id: 1, option_text: '您有房贷和孩子，万一出事了，谁来还房贷？谁来养孩子？', is_correct: 0, feedback: '虽然说的是事实，但语气过于直接，可能会让客户感到被威胁。', score: 40 },
+      { scenario_id: 2, option_text: '好的，您慢慢考虑。有需要随时联系我。', is_correct: 0, feedback: '这样回答太被动，可能会失去成交机会。', score: 40 },
+      { scenario_id: 2, option_text: '我理解您的谨慎。您主要考虑哪方面呢？是保障范围、保费还是其他？我可以帮您详细分析。', is_correct: 1, feedback: '非常好！通过开放式问题了解客户顾虑，展现专业性和服务意识。', score: 95 },
+      { scenario_id: 2, option_text: '现在投保有优惠活动，过了这个月就没了。', is_correct: 0, feedback: '用促销手段施压可能会让客户觉得你在推销，而不是为他着想。', score: 35 },
+      { scenario_id: 2, option_text: '那您先考虑，我下周再联系您。', is_correct: 1, feedback: '可以接受，但缺少主动了解客户顾虑的步骤。', score: 60 },
+      { scenario_id: 3, option_text: '重疾险就是确诊重大疾病后，保险公司一次性赔付一笔钱，您可以自由支配，用于治疗、康复或弥补收入损失。', is_correct: 1, feedback: '很好！简洁明了地说明了重疾险的核心功能和资金使用灵活性。', score: 85 },
+      { scenario_id: 3, option_text: '重疾险包含100种重大疾病，保额最高可达100万，等待期90天，保障终身。', is_correct: 0, feedback: '虽然信息准确，但过于技术化，没有突出对客户的价值。', score: 50 },
+      { scenario_id: 3, option_text: '作为企业主，您是家庭的经济支柱。一旦生病，不仅治疗需要钱，企业运营也会受影响。重疾险可以给您一笔现金流，让您安心养病。', is_correct: 1, feedback: '非常好！结合客户身份和实际情况，生动地说明了保险的必要性。', score: 95 },
+      { scenario_id: 3, option_text: '重疾险是必备保险，现在环境污染严重，得大病的人越来越多，一定要买。', is_correct: 0, feedback: '用恐吓的方式推销，可能会让客户反感。', score: 30 },
+      { scenario_id: 4, option_text: '您单身，没有家庭负担，建议先买意外险和医疗险，保费便宜保障高。', is_correct: 0, feedback: '虽然建议合理，但没有充分了解客户情况就下结论。', score: 55 },
+      { scenario_id: 4, option_text: '请问您目前的收入情况如何？有没有负债？父母是否需要您赡养？未来有什么规划？', is_correct: 1, feedback: '非常好！通过系统性的提问全面了解客户情况，体现专业性。', score: 95 },
+      { scenario_id: 4, option_text: '年轻人建议买重疾险，现在买保费便宜，以后年龄大了就贵了。', is_correct: 0, feedback: '虽然说的是事实，但没有了解客户的具体需求和预算。', score: 45 },
+      { scenario_id: 4, option_text: '您最担心什么风险？是意外、疾病还是其他？我们可以针对性地配置保障。', is_correct: 1, feedback: '不错！从客户关心的风险出发，引导需求分析。', score: 85 },
+      { scenario_id: 5, option_text: '社保是基础保障，但有起付线、封顶线和报销比例限制。商业保险可以补充这些不足，给您更全面的保障。', is_correct: 1, feedback: '很好！客观地说明了社保和商保的关系，强调互补性。', score: 90 },
+      { scenario_id: 5, option_text: '社保报销太少了，根本不够用，必须买商业保险。', is_correct: 0, feedback: '贬低社保可能会让客户觉得你不专业或有偏见。', score: 35 },
+      { scenario_id: 5, option_text: '社保只报销医疗费用，如果生病不能工作，收入损失怎么办？重疾险可以弥补这部分损失。', is_correct: 1, feedback: '非常好！指出了社保的保障缺口，用具体场景说明商业保险的价值。', score: 95 },
+      { scenario_id: 5, option_text: '您说得对，社保确实很重要。但您知道社保有哪些限制吗？我给您详细说说。', is_correct: 1, feedback: '不错！先认同客户，再引导了解详情。', score: 80 }
+    ];
+
+    for (const opt of options) {
+      db.run(
+        'INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (?, ?, ?, ?, ?)',
+        [opt.scenario_id, opt.option_text, opt.is_correct, opt.feedback, opt.score]
+      );
+    }
   }
   
   return db;
 }
 
-function initTables() {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      role TEXT DEFAULT 'student',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS questions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      type TEXT NOT NULL,
-      content TEXT NOT NULL,
-      option_a TEXT,
-      option_b TEXT,
-      option_c TEXT,
-      option_d TEXT,
-      answer TEXT NOT NULL,
-      explanation TEXT,
-      chapter TEXT
-    );
-    CREATE TABLE IF NOT EXISTS answers (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      question_id INTEGER NOT NULL,
-      user_answer TEXT NOT NULL,
-      is_correct INTEGER NOT NULL,
-      answer_time DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS training_scenarios (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      scenario TEXT NOT NULL,
-      scenario_type TEXT NOT NULL,
-      difficulty INTEGER DEFAULT 1,
-      tips TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS scenario_options (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      scenario_id INTEGER NOT NULL,
-      option_text TEXT NOT NULL,
-      is_correct INTEGER DEFAULT 0,
-      feedback TEXT,
-      score INTEGER DEFAULT 0,
-      FOREIGN KEY (scenario_id) REFERENCES training_scenarios(id)
-    );
-  `);
-
-  let countResult = db.exec("SELECT COUNT(*) as c FROM questions");
-  let count = countResult.length > 0 ? countResult[0].values[0][0] : 0;
-  
-  if (count === 0) {
-    db.run(`
-      INSERT INTO questions (type, content, option_a, option_b, option_c, option_d, answer, explanation, chapter)
-      VALUES ('single', '以下哪种保险产品不属于人寿保险的范畴？', '定期寿险', '健康保险', '终身寿险', '两全保险', 'B', '健康保险不属于人寿保险范畴。', '保险基础知识')
-    `);
-    db.run(`
-      INSERT INTO questions (type, content, option_a, option_b, option_c, option_d, answer, explanation, chapter)
-      VALUES ('single', '保险合同成立后，除法律另有规定外，不得解除保险合同的主体是？', '投保人', '保险人', '被保险人', '受益人', 'B', '根据保险法规定，投保人可以解除合同，保险人不得解除合同。', '保险基础知识')
-    `);
-    db.run(`
-      INSERT INTO questions (type, content, option_a, option_b, option_c, option_d, answer, explanation, chapter)
-      VALUES ('judge', '人寿保险适用损失补偿原则。', '', '', '', '', '错误', '人寿保险是定额给付型，不适用损失补偿原则。', '保险基础知识')
-    `);
-  }
-
-  countResult = db.exec("SELECT COUNT(*) as c FROM training_scenarios");
-  count = countResult.length > 0 ? countResult[0].values[0][0] : 0;
-  
-  if (count === 0) {
-    db.run(`INSERT INTO training_scenarios (title, scenario, scenario_type, difficulty, tips) VALUES ('客户对价格的异议', '客户说：你们的保险产品太贵了，我觉得没必要买。请问你该如何回应？', '客户异议处理', 1, '要理解客户的顾虑，强调保险的价值和保障。')`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (1, '直接降价优惠给客户', 0, '这不是最佳选择，直接降价会影响公司利润，也显得产品价值不高。', 30)`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (1, '解释保险的保障范围和长期价值', 1, '很好！要强调保险带来的安心和保障，而不是单纯比较价格。', 100)`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (1, '告诉客户便宜没好货', 0, '这种说法太绝对，可能会让客户感到被轻视。', 20)`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (1, '推荐更便宜的产品', 0, '这可能导致客户购买不符合需求的产品，影响客户体验。', 50)`);
-
-    db.run(`INSERT INTO training_scenarios (title, scenario, scenario_type, difficulty, tips) VALUES ('客户担心理赔难', '客户表示听说保险公司理赔很麻烦，担心出了事拿不到钱。你该如何回应？', '客户异议处理', 2, '要强调公司的信誉和理赔流程的透明性。')`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (2, '让客户放心，公司信誉很好', 0, '虽然正确，但缺乏说服力，需要更具体的证据。', 50)`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (2, '解释理赔流程，并分享成功案例', 1, '非常好！用具体案例和透明的流程说明来打消客户疑虑。', 100)`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (2, '让客户看合同条款', 0, '条款太复杂，客户可能看不懂，需要用更易懂的方式解释。', 40)`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (2, '保证一定能理赔成功', 0, '这是不恰当的承诺，理赔需要根据具体情况而定。', 20)`);
-
-    db.run(`INSERT INTO training_scenarios (title, scenario, scenario_type, difficulty, tips) VALUES ('客户犹豫不决', '客户对是否购买保险犹豫不决，说需要再考虑考虑。你该如何跟进？', '成交技巧', 1, '要给客户适当的时间，但也要保持跟进。')`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (3, '给客户一周时间考虑', 0, '时间太长，客户可能会忘记或改变主意。', 40)`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (3, '询问顾虑并提供解决方案', 1, '很好！了解客户的顾虑并针对性解决，有助于推动决策。', 100)`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (3, '不断催促客户做决定', 0, '过于pushy会让客户感到压力，可能导致反感。', 20)`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (3, '送一些小礼品促成签约', 0, '这可能违反公司规定，也不是长久之计。', 30)`);
-
-    db.run(`INSERT INTO training_scenarios (title, scenario, scenario_type, difficulty, tips) VALUES ('家庭保障需求分析', '一对年轻夫妻，有一个3岁孩子，月收入合计2万元。你该如何分析他们的保险需求？', '需求分析', 2, '要考虑家庭结构、收入状况和未来规划。')`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (4, '推荐最贵的保险产品', 0, '不考虑客户实际需求，只推贵的产品是不负责任的。', 20)`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (4, '先了解家庭情况和担忧，再推荐合适的方案', 1, '非常好！需求分析是顾问的核心能力，要先倾听再推荐。', 100)`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (4, '直接推荐热销产品', 0, '热销产品不一定适合每个客户，需要个性化分析。', 30)`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (4, '建议等收入更高再考虑', 0, '保险应该尽早规划，越早越便宜，保障时间也更长。', 40)`);
-
-    db.run(`INSERT INTO training_scenarios (title, scenario, scenario_type, difficulty, tips) VALUES ('产品对比说明', '客户想比较你们公司的产品和竞争对手的产品。你该如何回应？', '产品介绍', 2, '要客观公正，突出自身优势但不贬低对手。')`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (5, '说竞争对手的产品不好', 0, '贬低竞争对手显得不专业，也可能违反规定。', 20)`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (5, '客观对比优缺点，强调自身优势', 1, '很好！专业的顾问应该客观分析，帮助客户做出明智选择。', 100)`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (5, '说自己的产品完美无缺', 0, '没有完美的产品，过分吹嘘会降低可信度。', 40)`);
-    db.run(`INSERT INTO scenario_options (scenario_id, option_text, is_correct, feedback, score) VALUES (5, '拒绝比较', 0, '客户有比较需求是正常的，回避会让客户觉得你心虚。', 30)`);
-  }
-}
-
-function saveDb() {
-  const data = db.export();
-  const dbPath = path.join(process.cwd(), 'database', 'shouxian.db');
-  fs.writeFileSync(dbPath, Buffer.from(data));
-}
-
-export default {
-  async prepare(sql) {
-    const convertedSql = convertPlaceholders(sql);
-    const database = await getDb();
-    return {
-      run: async (...params) => {
-        const stmt = database.prepare(convertedSql);
-        stmt.bind(params);
-        stmt.step();
-        const result = database.exec("SELECT last_insert_rowid() as id");
-        const lastInsertRowid = result.length > 0 ? result[0].values[0][0] : null;
-        stmt.free();
-        saveDb();
-        return { lastInsertRowid };
-      },
-      get: async (...params) => {
-        const database = await getDb();
-        const stmt = database.prepare(convertedSql);
-        stmt.bind(params);
-        if (!stmt.step()) {
-          stmt.free();
-          return null;
-        }
-        const columns = stmt.getColumnNames();
-        const values = stmt.get();
-        stmt.free();
-        const obj = {};
-        for (let i = 0; i < columns.length; i++) {
-          obj[columns[i]] = values[i];
-        }
-        return obj;
-      },
-      all: async (...params) => {
-        const database = await getDb();
-        const stmt = database.prepare(convertedSql);
-        stmt.bind(params);
-        const columns = stmt.getColumnNames();
-        const results = [];
-        while (stmt.step()) {
-          const values = stmt.get();
-          const obj = {};
-          for (let i = 0; i < columns.length; i++) {
-            obj[columns[i]] = values[i];
-          }
-          results.push(obj);
-        }
-        stmt.free();
-        return results;
-      }
-    };
-  },
-  async query(sql, params = []) {
-    const database = await getDb();
-    const convertedSql = convertPlaceholders(sql);
-    const stmt = database.prepare(convertedSql);
-    stmt.bind(params);
-    stmt.step();
-    stmt.free();
-  },
-  async exec(sql) {
-    const database = await getDb();
-    database.run(sql);
-  }
-};
+module.exports = { initDB };
