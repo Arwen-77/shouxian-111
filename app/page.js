@@ -1,77 +1,99 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Form, Input, Tabs, Card, App } from 'antd';
-import { UserOutlined, LockOutlined, MailOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Card, Tabs, message, App } from 'antd';
+import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useRouter } from 'next/navigation';
 
 export default function Home() {
-  const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('login');
   const router = useRouter();
-  const { message } = App.useApp();
+  const { message: messageApi } = App.useApp();
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = async (values) => {
-    setLoading(true);
+  const handleRegister = async (values) => {
     try {
-      const response = await fetch('/api/auth/login', {
+      setLoading(true);
+      const response = await fetch('/api/auth/register', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(values),
       });
 
       const data = await response.json();
 
       if (response.ok) {
-        message.success('登录成功！');
-        console.log('Token:', data.token);
-        localStorage.setItem('token', data.token);
-        router.push('/dashboard');
+        messageApi.success('注册成功！请登录');
+        // 自动切换到登录标签
+        document.querySelector('.ant-tabs-tab:nth-child(2)').click();
       } else {
-        message.error(data.error || '登录失败');
+        messageApi.error(data.error || '注册失败');
       }
     } catch (error) {
-      message.error('网络错误，请稍后重试');
+      console.error('注册错误:', error);
+      messageApi.error('注册失败，请稍后重试');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRegister = async (values) => {
-    setLoading(true);
+  const handleLogin = async (values) => {
     try {
-      const response = await fetch('/api/auth/register', {
+      setLoading(true);
+      const response = await fetch('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(values),
       });
 
       const data = await response.json();
 
       if (response.ok) {
-        message.success('注册成功！请登录');
-        setActiveTab('login');
+        messageApi.success('登录成功！');
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        router.push('/dashboard');
       } else {
-        message.error(data.error || '注册失败');
+        messageApi.error(data.error || '登录失败');
       }
     } catch (error) {
-      message.error('网络错误，请稍后重试');
+      console.error('登录错误:', error);
+      messageApi.error('登录失败，请稍后重试');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
-      <Card className="w-full max-w-md shadow-2xl">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-800">欢迎使用</h1>
-          <p className="text-gray-600 mt-2">Next.js + Ant Design + SQLite</p>
-        </div>
-
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      padding: '20px'
+    }}>
+      <Card
+        style={{
+          width: '100%',
+          maxWidth: 400,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+        }}
+        title="保险刷题系统"
+        headStyle={{
+          textAlign: 'center',
+          fontSize: '24px',
+          fontWeight: 'bold',
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          color: 'white'
+        }}
+      >
         <Tabs
-          activeKey={activeTab}
-          onChange={setActiveTab}
+          defaultActiveKey="login"
+          centered
           items={[
             {
               key: 'login',
@@ -81,41 +103,51 @@ export default function Home() {
                   name="login"
                   onFinish={handleLogin}
                   autoComplete="off"
-                  size="large"
+                  layout="vertical"
                 >
                   <Form.Item
                     name="username"
-                    rules={[{ required: true, message: '请输入用户名' }]}
+                    rules={[
+                      { required: true, message: '请输入用户名' }
+                    ]}
                   >
-                    <Input 
-                      prefix={<UserOutlined />} 
-                      placeholder="用户名" 
+                    <Input
+                      prefix={<UserOutlined />}
+                      placeholder="用户名"
+                      size="large"
                     />
                   </Form.Item>
 
                   <Form.Item
                     name="password"
-                    rules={[{ required: true, message: '请输入密码' }]}
+                    rules={[
+                      { required: true, message: '请输入密码' }
+                    ]}
                   >
                     <Input.Password
                       prefix={<LockOutlined />}
                       placeholder="密码"
+                      size="large"
                     />
                   </Form.Item>
 
                   <Form.Item>
-                    <Button 
-                      type="primary" 
-                      htmlType="submit" 
+                    <Button
+                      type="primary"
+                      htmlType="submit"
                       loading={loading}
                       block
                       size="large"
+                      style={{
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        border: 'none'
+                      }}
                     >
                       登录
                     </Button>
                   </Form.Item>
                 </Form>
-              ),
+              )
             },
             {
               key: 'register',
@@ -125,30 +157,19 @@ export default function Home() {
                   name="register"
                   onFinish={handleRegister}
                   autoComplete="off"
-                  size="large"
+                  layout="vertical"
                 >
                   <Form.Item
                     name="username"
                     rules={[
                       { required: true, message: '请输入用户名' },
-                      { min: 3, message: '用户名至少 3 个字符' }
+                      { min: 3, message: '用户名至少3个字符' }
                     ]}
                   >
-                    <Input 
-                      prefix={<UserOutlined />} 
-                      placeholder="用户名" 
-                    />
-                  </Form.Item>
-
-                  <Form.Item
-                    name="email"
-                    rules={[
-                      { type: 'email', message: '请输入有效的邮箱地址' }
-                    ]}
-                  >
-                    <Input 
-                      prefix={<MailOutlined />} 
-                      placeholder="邮箱（选填）" 
+                    <Input
+                      prefix={<UserOutlined />}
+                      placeholder="用户名"
+                      size="large"
                     />
                   </Form.Item>
 
@@ -156,17 +177,18 @@ export default function Home() {
                     name="password"
                     rules={[
                       { required: true, message: '请输入密码' },
-                      { min: 6, message: '密码至少 6 个字符' }
+                      { min: 6, message: '密码至少6个字符' }
                     ]}
                   >
                     <Input.Password
                       prefix={<LockOutlined />}
                       placeholder="密码"
+                      size="large"
                     />
                   </Form.Item>
 
                   <Form.Item
-                    name="confirm"
+                    name="confirmPassword"
                     dependencies={['password']}
                     rules={[
                       { required: true, message: '请确认密码' },
@@ -183,23 +205,40 @@ export default function Home() {
                     <Input.Password
                       prefix={<LockOutlined />}
                       placeholder="确认密码"
+                      size="large"
+                    />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="email"
+                    rules={[
+                      { type: 'email', message: '请输入有效的邮箱地址' }
+                    ]}
+                  >
+                    <Input
+                      placeholder="邮箱（可选）"
+                      size="large"
                     />
                   </Form.Item>
 
                   <Form.Item>
-                    <Button 
-                      type="primary" 
-                      htmlType="submit" 
+                    <Button
+                      type="primary"
+                      htmlType="submit"
                       loading={loading}
                       block
                       size="large"
+                      style={{
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        border: 'none'
+                      }}
                     >
                       注册
                     </Button>
                   </Form.Item>
                 </Form>
-              ),
-            },
+              )
+            }
           ]}
         />
       </Card>

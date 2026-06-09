@@ -1,38 +1,65 @@
-import db from '@/database/db';
+import { NextResponse } from 'next/server';
+import { Pool } from 'pg';
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
 
 export async function GET(request) {
-  const prepared = await db.prepare('SELECT * FROM questions');
-  const questions = await prepared.all();
-  return Response.json(questions);
+  const { searchParams } = new URL(request.url);
+  const category = searchParams.get('category');
+  const difficulty = searchParams.get('difficulty');
+
+  let query = 'SELECT * FROM questions';
+  let params = [];
+  let conditions = [];
+
+  if (category) {
+    conditions.push(`category = $${params.length + 1}`);
+    params.push(category);
+  }
+
+  if (difficulty) {
+    conditions.push(`difficulty = $${params.length + 1}`);
+    params.push(difficulty);
+  }
+
+  if (conditions.length > 0) {
+    query += ' WHERE ' + conditions.join(' AND ');
+  }
+
+  query += ' ORDER BY created_at DESC';
+
+  const result = await pool.query(query, params);
+  const questions = result.rows.map(q => ({
+    ...q,
+    options: JSON.parse(q.options)
+  }));
+
+  return NextResponse.json(questions);
 }
 
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { type, content, option_a, option_b, option_c, option_d, answer, explanation, chapter } = body;
+    const { question, options, answer, explanation, category, difficulty } = body;
 
-    if (!type || !content || !answer) {
-      return Response.json({ error: '缺少必填字段' }, { status: 400 });
+    if (!question || !options || answer === undefined) {
+      return NextResponse.json({ error: '缺少必填字段' }, { status: 400 });
     }
 
-    const insertStmt = await db.prepare(
-      'INSERT INTO questions (type, content, option_a, option_b, option_c, option_d, answer, explanation, chapter) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    const result = await pool.query(
+      'INSERT INTO questions (question, options, answer, explanation, category, difficulty) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [question, JSON.stringify(options), answer, explanation, category || '综合', difficulty || 1]
     );
-    const result = await insertStmt.run(type, content, option_a, option_b, option_c, option_d, answer, explanation, chapter);
 
-    return Response.json({ 
-      id: result.lastInsertRowid,
-      type,
-      content,
-      option_a,
-      option_b,
-      option_c,
-      option_d,
-      answer,
-      explanation,
-      chapter
+    const newQuestion = result.rows[0];
+    return NextResponse.json({
+      ...newQuestion,
+      options: JSON.parse(newQuestion.options)
     }, { status: 201 });
   } catch (error) {
-    return Response.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

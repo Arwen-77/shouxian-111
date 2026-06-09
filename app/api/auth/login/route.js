@@ -1,14 +1,47 @@
-import db from '@/database/db';
-import bcrypt from 'bcryptjs';
-import { generateToken } from '@/lib/auth';
+import { NextResponse } from 'next/server';
+import { login } from '../../../../lib/auth';
 
+/**
+ * POST /api/auth/login
+ * 用户登录
+ */
 export async function POST(request) {
-    const { username, password } = await request.json();
-    const prepared = await db.prepare('SELECT * FROM users WHERE username = ?');
-    const user = await prepared.get(username);
-    if (!user) return Response.json({ error: '用户名不存在' }, { status: 401 });
-    const valid = bcrypt.compareSync(password, user.password);
-    if (!valid) return Response.json({ error: '密码错误' }, { status: 401 });
-    const token = generateToken(user);
-    return Response.json({ token, user: { id: user.id, username: user.username, role: user.role } });
+  try {
+    const body = await request.json();
+    const { username, password } = body;
+
+    // 验证必填字段
+    if (!username || !password) {
+      return NextResponse.json(
+        { error: '用户名和密码不能为空' },
+        { status: 400 }
+      );
+    }
+
+    // 登录
+    const user = await login(username, password);
+
+    if (!user) {
+      return NextResponse.json(
+        { error: '用户名或密码错误' },
+        { status: 401 }
+      );
+    }
+
+    return NextResponse.json({
+      message: '登录成功',
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email
+      },
+      token: user.token
+    });
+  } catch (error) {
+    console.error('登录错误:', error);
+    return NextResponse.json(
+      { error: '登录失败' },
+      { status: 500 }
+    );
+  }
 }
